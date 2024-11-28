@@ -3,16 +3,9 @@ from pydantic import BaseModel, field_validator
 from datetime import datetime
 from typing import List
 import mysql.connector
+from config import db_config
 
 app = FastAPI()
-
-# Konfigurasi database
-db_config = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': '',
-    'database': 'smartwaste'
-}
 
 # Model data yang diterima
 class SensorData(BaseModel):
