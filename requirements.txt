@@ -1,0 +1,2 @@
+fastapi[standard]==0.112.0
+hypercorn==0.17.3
