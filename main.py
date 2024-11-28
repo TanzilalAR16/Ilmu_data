@@ -35,6 +35,9 @@ def create_table_if_not_exists():
             id INT AUTO_INCREMENT PRIMARY KEY,
             jarak FLOAT NOT NULL,
             kapasitas FLOAT NOT NULL,
+            NH3 FLOAT NOT NULL,
+            CO2 FLOAT NOT NULL,
+            Acetone FLOAT NOT NULL,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
@@ -58,6 +61,9 @@ class SensorData(BaseModel):
     timestamp: datetime
     jarak: float
     kapasitas: float
+    NH3: float
+    CO2: float
+    Acetone: float
 
     @field_validator('timestamp', mode='before')
     def parse_timestamp(cls, value):
@@ -73,8 +79,8 @@ def save_to_database(data: SensorData):
     try:
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor()
-        query = "INSERT INTO sensor_data (timestamp, jarak, kapasitas) VALUES (%s, %s, %s)"
-        values = (data.timestamp, data.jarak, data.kapasitas)
+        query = "INSERT INTO sensor_data (timestamp, jarak, kapasitas, NH3, CO2, Acetone) VALUES (%s, %s, %s, %s, %s, %s)"
+        values = (data.timestamp, data.jarak, data.kapasitas, data.NH3, data.CO2, data.Acetone)
         cursor.execute(query, values)
         conn.commit()
         cursor.close()
@@ -110,7 +116,7 @@ async def get_sensor_data(
         
         # Get paginated data
         query = """
-            SELECT timestamp, jarak, kapasitas 
+            SELECT timestamp, jarak, kapasitas, NH3, CO2, Acetone 
             FROM sensor_data 
             ORDER BY timestamp DESC 
             LIMIT %s OFFSET %s
