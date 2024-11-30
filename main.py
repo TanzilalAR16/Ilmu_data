@@ -1,10 +1,12 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, StreamingResponse
 from pydantic import BaseModel, field_validator
 from datetime import datetime
 from typing import List
 import mysql.connector
 from config import db_config
 import mysql.connector
+import csv
+from io import StringIO
 from mysql.connector import errorcode
 
 app = FastAPI()
@@ -142,3 +144,24 @@ async def get_sensor_data(
 async def delete_table():
     drop_table_if_exists()
     return {"message": "Table deleted successfully!"}
+
+@app.get("/export-data")
+async def export_data():
+    try:
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+        query = "SELECT * FROM sensor_data"
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow([i[0] for i in cursor.description])  # Write headers
+        writer.writerows(rows)
+
+        output.seek(0)
+        return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=sensor_data.csv"})
+    except mysql.connector.Error as err:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(err)}")
