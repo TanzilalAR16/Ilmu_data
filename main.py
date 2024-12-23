@@ -1,47 +1,65 @@
 import pickle
 import re
-from fastapi import FastAPI
-from pydantic import BaseModel
-import nltk
+from fastapi import FastAPI, Form, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
-from sklearn.feature_extraction.text import CountVectorizer
+import nltk
 
 # Download required NLTK data
 nltk.download('stopwords')
 
 app = FastAPI()
 
+# Serve static files (HTML, CSS, JS)
+app.mount("/templates", StaticFiles(directory="templates"), name="templates")
+
 # Load the saved model and CountVectorizer
 model_filename = 'ensemble_model.pkl'
-with open(model_filename, 'rb') as file:
-    loaded_model = pickle.load(file)
-
 cv_filename = 'cv.pkl'
-with open(cv_filename, 'rb') as file:
-    loaded_cv = pickle.load(file)
 
-class Review(BaseModel):
-    review: str
+try:
+    with open(model_filename, 'rb') as model_file:
+        loaded_model = pickle.load(model_file)
+except FileNotFoundError:
+    raise HTTPException(status_code=500, detail="Model file not found")
+
+try:
+    with open(cv_filename, 'rb') as cv_file:
+        loaded_cv = pickle.load(cv_file)
+except FileNotFoundError:
+    raise HTTPException(status_code=500, detail="CountVectorizer file not found")
+
+
+@app.get("/", response_class=HTMLResponse)
+async def read_root():
+    """Serve the index.html file."""
+    with open("templates/index.html", "r") as file:
+        return file.read()
+
 
 @app.post("/predict_sentiment")
-async def predict_sentiment(review: Review):
-    # Preprocess the input text
-    text = review.review
-    word = re.sub('[^a-zA-Z]', ' ', text)
-    word = word.lower()
-    word = word.split()
-    ps = PorterStemmer()
-    all_stopwords = stopwords.words('indonesian')
-    word = [ps.stem(w) for w in word if not w in set(all_stopwords)]
-    word = ' '.join(word)
+async def predict_sentiment(review: str = Form(...)):
+    """Predict the sentiment of the provided review."""
+    try:
+        # Preprocess the input text
+        text = review
+        text = re.sub('[^a-zA-Z]', ' ', text).lower().split()
+        ps = PorterStemmer()
+        stop_words = stopwords.words('indonesian')
+        text = ' '.join(ps.stem(word) for word in text if word not in stop_words)
 
-    # Transform the text using the loaded CountVectorizer
-    X_new = loaded_cv.transform([word]).toarray()
+        # Transform the text using the loaded CountVectorizer
+        X_new = loaded_cv.transform([text]).toarray()
 
-    # Make the prediction
-    y_new_pred = loaded_model.predict(X_new)[0]
+        # Make the prediction
+        prediction = loaded_model.predict(X_new)[0]
 
-    sentiment_mapping = {1: "Negative", 2: "Neutral", 3: "Positive"}
-    sentiment = sentiment_mapping[y_new_pred]
-    return {"sentiment": sentiment}
+        # Map prediction to sentiment
+        sentiment_mapping = {1: "Negative", 2: "Neutral", 3: "Positive"}
+        sentiment = sentiment_mapping.get(prediction, "Unknown")
+
+        return {"sentiment": sentiment}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error during prediction: {e}")

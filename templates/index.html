@@ -1,40 +1,37 @@
-<!-- filepath: /c:/Users/ASUS TUF GAMING/Downloads/iot/templates/index.html -->
 <!DOCTYPE html>
 <html>
 <head>
-    <title>FastAPI HTML Example</title>
+    <title>Sentiment Analysis</title>
 </head>
 <body>
-    <h1>Welcome to FastAPI</h1>
+    <h1>Sentiment Analysis</h1>
     <form id="reviewForm">
-        <textarea name="review" id="review" rows="4" cols="50"></textarea>
+        <textarea id="review" rows="4" cols="50" placeholder="Enter your review here"></textarea>
         <br>
-        <input type="submit" value="Submit">
+        <button type="submit">Submit</button>
     </form>
     <div id="result"></div>
 
     <script>
-        document.getElementById('reviewForm').addEventListener('submit', async function(event) {
+        document.getElementById("reviewForm").addEventListener("submit", async function (event) {
             event.preventDefault();
-            const review = document.getElementById('review').value;
+            const review = document.getElementById("review").value;
             try {
-                const response = await fetch('/predict_sentiment', {
-                    method: 'POST',
+                const response = await fetch("/predict_sentiment", {
+                    method: "POST",
                     headers: {
-                        'Content-Type': 'application/json',
+                        "Content-Type": "application/x-www-form-urlencoded",
                     },
-                    body: JSON.stringify({
-                        review: review
-                    })
+                    body: new URLSearchParams({ review }),
                 });
                 const result = await response.json();
                 if (response.ok) {
-                    document.getElementById('result').innerText = 'Sentiment: ' + result.sentiment;
+                    document.getElementById("result").innerText = "Sentiment: " + result.sentiment;
                 } else {
-                    document.getElementById('result').innerText = 'Error: ' + result.error;
+                    document.getElementById("result").innerText = "Error: " + result.detail;
                 }
             } catch (error) {
-                document.getElementById('result').innerText = 'Error: ' + error.message;
+                document.getElementById("result").innerText = "Error: " + error.message;
             }
         });
     </script>
