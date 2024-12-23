@@ -1,168 +1,47 @@
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, field_validator
-from datetime import datetime
-from typing import List
-import mysql.connector
-from config import db_config
-import mysql.connector
-import csv
-from io import StringIO
-from mysql.connector import errorcode
+import pickle
+import re
+from fastapi import FastAPI
+from pydantic import BaseModel
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem.porter import PorterStemmer
+from sklearn.feature_extraction.text import CountVectorizer
+
+# Download required NLTK data
+nltk.download('stopwords')
 
 app = FastAPI()
 
-def drop_table_if_exists():
-    try:
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor()
-        drop_table_query = "DROP TABLE IF EXISTS sensor_data"
-        cursor.execute(drop_table_query)
-        conn.commit()
-        cursor.close()
-        conn.close()
-    except mysql.connector.Error as err:
-        if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
-            print("Something is wrong with your user name or password")
-        elif err.errno == errorcode.ER_BAD_DB_ERROR:
-            print("Database does not exist")
-        else:
-            print(err)
+# Load the saved model and CountVectorizer
+model_filename = 'ensemble_model.pkl'
+with open(model_filename, 'rb') as file:
+    loaded_model = pickle.load(file)
 
-def create_table_if_not_exists():
-    try:
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor()
-        create_table_query = """
-        CREATE TABLE IF NOT EXISTS sensor_data (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            jarak FLOAT NOT NULL,
-            kapasitas FLOAT NOT NULL,
-            NH3 FLOAT NOT NULL,
-            CO2 FLOAT NOT NULL,
-            Acetone FLOAT NOT NULL,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-        cursor.execute(create_table_query)
-        conn.commit()
-        cursor.close()
-        conn.close()
-    except mysql.connector.Error as err:
-        if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
-            print("Something is wrong with your user name or password")
-        elif err.errno == errorcode.ER_BAD_DB_ERROR:
-            print("Database does not exist")
-        else:
-            print(err)
+cv_filename = 'cv.pkl'
+with open(cv_filename, 'rb') as file:
+    loaded_cv = pickle.load(file)
 
-# Panggil fungsi untuk membuat tabel saat aplikasi dimulai
-create_table_if_not_exists()
+class Review(BaseModel):
+    review: str
 
-# Model data yang diterima
-class SensorData(BaseModel):
-    timestamp: datetime
-    jarak: float
-    kapasitas: float
-    NH3: float
-    CO2: float
-    Acetone: float
+@app.post("/predict_sentiment")
+async def predict_sentiment(review: Review):
+    # Preprocess the input text
+    text = review.review
+    word = re.sub('[^a-zA-Z]', ' ', text)
+    word = word.lower()
+    word = word.split()
+    ps = PorterStemmer()
+    all_stopwords = stopwords.words('indonesian')
+    word = [ps.stem(w) for w in word if not w in set(all_stopwords)]
+    word = ' '.join(word)
 
-    @field_validator('timestamp', mode='before')
-    def parse_timestamp(cls, value):
-        if isinstance(value, str):
-            try:
-                return datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
-            except ValueError:
-                raise ValueError('Invalid timestamp format')
-        return value
+    # Transform the text using the loaded CountVectorizer
+    X_new = loaded_cv.transform([word]).toarray()
 
-# Fungsi untuk menyimpan data ke database
-def save_to_database(data: SensorData):
-    try:
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor()
-        query = "INSERT INTO sensor_data (timestamp, jarak, kapasitas, NH3, CO2, Acetone) VALUES (%s, %s, %s, %s, %s, %s)"
-        values = (data.timestamp, data.jarak, data.kapasitas, data.NH3, data.CO2, data.Acetone)
-        cursor.execute(query, values)
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Database Error: {e}")
-        return False
+    # Make the prediction
+    y_new_pred = loaded_model.predict(X_new)[0]
 
-# Endpoint untuk menerima data sensor
-@app.post("/save-data")
-async def save_data(data: SensorData):
-    if save_to_database(data):
-        return {"message": "Data saved successfully!"}
-    else:
-        raise HTTPException(status_code=500, detail="Failed to save data to database.")
-
-@app.get("/sensor-data")
-async def get_sensor_data(
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=10, ge=1, le=100)
-):
-    try:
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor(dictionary=True)
-        
-        # Get total count
-        cursor.execute("SELECT COUNT(*) as total FROM sensor_data")
-        total_records = cursor.fetchone()['total']
-        
-        # Calculate offset
-        offset = (page - 1) * page_size
-        
-        # Get paginated data
-        query = """
-            SELECT timestamp, jarak, kapasitas, NH3, CO2, Acetone 
-            FROM sensor_data 
-            ORDER BY timestamp DESC 
-            LIMIT %s OFFSET %s
-        """
-        cursor.execute(query, (page_size, offset))
-        data = cursor.fetchall()
-        
-        cursor.close()
-        conn.close()
-
-        return {
-            "data": data,
-            "page": page,
-            "page_size": page_size,
-            "total_records": total_records,
-            "total_pages": -(-total_records // page_size)  # Ceiling division
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-    
-@app.delete("/delete-table")
-async def delete_table():
-    drop_table_if_exists()
-    return {"message": "Table deleted successfully!"}
-
-@app.get("/export-data")
-async def export_data():
-    try:
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor()
-        query = "SELECT * FROM sensor_data"
-        cursor.execute(query)
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
-
-        output = StringIO()
-        writer = csv.writer(output)
-        writer.writerow([i[0] for i in cursor.description])  # Write headers
-        writer.writerows(rows)
-
-        output.seek(0)
-        return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=sensor_data.csv"})
-    except mysql.connector.Error as err:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(err)}")
+    sentiment_mapping = {1: "Negative", 2: "Neutral", 3: "Positive"}
+    sentiment = sentiment_mapping[y_new_pred]
+    return {"sentiment": sentiment}

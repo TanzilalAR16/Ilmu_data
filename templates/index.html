@@ -1,0 +1,42 @@
+<!-- filepath: /c:/Users/ASUS TUF GAMING/Downloads/iot/templates/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>FastAPI HTML Example</title>
+</head>
+<body>
+    <h1>Welcome to FastAPI</h1>
+    <form id="reviewForm">
+        <textarea name="review" id="review" rows="4" cols="50"></textarea>
+        <br>
+        <input type="submit" value="Submit">
+    </form>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('reviewForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const review = document.getElementById('review').value;
+            try {
+                const response = await fetch('/predict_sentiment', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        review: review
+                    })
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    document.getElementById('result').innerText = 'Sentiment: ' + result.sentiment;
+                } else {
+                    document.getElementById('result').innerText = 'Error: ' + result.error;
+                }
+            } catch (error) {
+                document.getElementById('result').innerText = 'Error: ' + error.message;
+            }
+        });
+    </script>
+</body>
+</html>
